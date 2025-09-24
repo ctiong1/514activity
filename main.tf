@@ -1,22 +1,41 @@
 # Configure the AWS Provider
 provider "aws" {
-  region = "us-east-1" # Set AWS region to US East 1 (N. Virginia)
+  region = "us-east-1"
 }
 
-# Local variables block for configuration values
+# (Optional) limit SSH to your IP instead of 0.0.0.0/0
+variable "ssh_cidr" {
+  type        = string
+  description = "CIDR allowed for SSH"
+  default     = "0.0.0.0/0" # <-- replace with your_ip/32 when ready
+}
+
+# Default VPC (change if you use a custom one)
+data "aws_vpc" "default" {
+  default = true
+}
+
 locals {
-  aws_key = "CT_AWS_KEY1" # SSH key pair name for EC2 instance access
+  aws_key = "CT_AWS_KEY1"
 }
 
 resource "aws_security_group" "web" {
   name        = "tf-wp-sg"
   description = "Allow SSH and HTTP"
+  vpc_id      = data.aws_vpc.default.id
+
+  # Make deletions more reliable
+  revoke_rules_on_delete = true
+  timeouts {
+    delete = "10m"
+  }
 
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.ssh_cidr]
+    description = "ssh"
   }
 
   ingress {
@@ -24,6 +43,7 @@ resource "aws_security_group" "web" {
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "http"
   }
 
   egress {
@@ -34,15 +54,12 @@ resource "aws_security_group" "web" {
   }
 }
 
-# EC2 instance resource definition
 resource "aws_instance" "my_server" {
-  ami           = data.aws_ami.amazonlinux.id # Use the AMI ID from the data source
-  instance_type = var.instance_type           # Use the instance type from variables
-  key_name      = local.aws_key               # Specify the SSH key pair name
-  user_data     = file("${path.module}/wp_install.sh")
+  ami                    = data.aws_ami.amazonlinux.id
+  instance_type          = var.instance_type
+  key_name               = local.aws_key
+  user_data              = file("${path.module}/wp_install.sh")
   vpc_security_group_ids = [aws_security_group.web.id]
-  # Add tags to the EC2 instance for identification
-  tags = {
-    Name = "my ec2"
-  }
+
+  tags = { Name = "my ec2" }
 }
